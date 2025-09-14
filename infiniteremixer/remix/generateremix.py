@@ -6,13 +6,15 @@ from infiniteremixer.remix.featureretriever import FeatureRetriever
 from infiniteremixer.search.nnsearch import NNSearch
 from infiniteremixer.remix.beatselector import BeatSelector
 from infiniteremixer.remix.remixer import Remixer
-
+from glob import glob
+import os
 
 # change these paths to run the script with your data
-MAPPING_PATH = "/home/valerio/datasets/infinitemixer/mfcc_chromo/mapping.pkl"
-FEATURES_PATH = "/home/valerio/datasets/infinitemixer/mfcc_chromo/dataset.pkl"
-NEAREST_NEIGHBOUR_PATH = "/home/valerio/datasets/infinitemixer/mfcc_chromo/nearestneighbour.pkl"
+MAPPING_PATH = ""
+FEATURES_PATH = ""
+NEAREST_NEIGHBOUR_PATH = ""
 SAMPLE_RATE = 22050
+SEGMENTS_DIR = ""
 
 
 def generate_remix():
@@ -40,21 +42,54 @@ def generate_remix():
 
 
 def _create_objects(jump_rate, number_of_beats):
-    beats_file_paths = load_from_pickle(MAPPING_PATH)
+    # 1) Discover segment files as PATHS (strings)
+    beats_file_paths = sorted(
+        glob(os.path.join(SEGMENTS_DIR, "*.wav")) +
+        glob(os.path.join(SEGMENTS_DIR, "*.aif")) +
+        glob(os.path.join(SEGMENTS_DIR, "*.aiff")) +
+        glob(os.path.join(SEGMENTS_DIR, "*.flac")) +
+        glob(os.path.join(SEGMENTS_DIR, "*.ogg"))
+    )
+    if beats_file_paths == None:
+        raise RuntimeError(f"No segments found in {SEGMENTS_DIR}. Did you run `segment ...`?")
+
+    # 2) Load models/mappings into separate vars (DO NOT overwrite beats_file_paths)
+    mapping_pickle = load_from_pickle(MAPPING_PATH)
     features = load_from_pickle(FEATURES_PATH)
     nearest_neighbour_model = load_from_pickle(NEAREST_NEIGHBOUR_PATH)
 
+    # If your mapping pickle is a dict/list, normalize to a list of PATH STRINGS
+    def to_path_list(m):
+        # Accept list[str]
+        if isinstance(m, list) and all(isinstance(x, str) for x in m):
+            return m
+        # Accept dict with string keys that look like paths
+        if isinstance(m, dict):
+            keys = [k for k in m.keys() if isinstance(k, str)]
+            vals = [v for v in m.values() if isinstance(v, str)]
+            return keys if keys else vals
+        # Otherwise, leave None to avoid corrupting beat_file_paths
+        return None
+
+    mapping_paths = to_path_list(mapping_pickle)
+
+    # 3) Wire everything
     chunk_merger = AudioChunkMerger()
+
     feature_retriever = FeatureRetriever()
-    feature_retriever.mapping = beats_file_paths
+    # If the retriever expects a path list, use mapping_paths when available, else fall back to beats_file_paths
+    feature_retriever.mapping = mapping_pickle
     feature_retriever.features = features
+
     nn_search = NNSearch()
-    nn_search.mapping = beats_file_paths
+    nn_search.mapping = mapping_pickle
     nn_search.model = nearest_neighbour_model
+
     beat_selector = BeatSelector(jump_rate)
     beat_selector.nn_search = nn_search
     beat_selector.feature_retriever = feature_retriever
-    beat_selector.beat_file_paths = beats_file_paths
+    beat_selector.beat_file_paths = beats_file_paths       # <-- list[str], OK
+
     remixer = Remixer(number_of_beats)
     remixer.beat_selector = beat_selector
 

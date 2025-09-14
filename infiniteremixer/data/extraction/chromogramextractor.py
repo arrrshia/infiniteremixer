@@ -19,7 +19,7 @@ class ChromogramExtractor(Extractor):
 
         :return: (np.ndarray) Chromogram
         """
-        chromogram = librosa.feature.chroma_stft(signal,
+        chromogram = librosa.feature.chroma_stft(y=signal,
                                                  n_fft=self.frame_size,
                                                  hop_length=self.hop_length,
                                                  sr=sample_rate)
